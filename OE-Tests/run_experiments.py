@@ -23,34 +23,62 @@ num_classes = 10  # CIFAR-10 has 10 classes
 n_hidden_layers = [1, 2, 4]
 n_neurons_x_layer = [50, 200, 1000]
 learning_rate = [10**-3, 10**-4, 10**-5]
+# Set other HP
+seeds = [13, 42, 1337, 2024, 777]
+batch_sizes = [128, 256, 512]
 
+pairing_number = 1 
+total_combinations = len(seeds) * len(batch_sizes)
 
+# Symmetrical
 architectures = experiments.generate_architectures(n_hidden_layers,
                                                     n_neurons_x_layer,
                                                     learning_rate, 
                                                     input_size, num_classes,
-                                                    symmetric=True) # For symmetric MLP:
+                                                    symmetric=True) # For symmetric MLP
+for random_seed in seeds:
+    for batch_size in batch_sizes:
+        print(f'Testing seed-batch pairing number: {pairing_number}/{total_combinations}')
 
-# Set other HP
-random_seed = 13
-batch_size = 32
-
-results_list = []
-
-for i, architecture in enumerate(architectures):
-    print(f'Training architecture {i+1} / {len(architectures)}')
-    experiment = experiments.Experiment(architecture=architecture, 
-                                    train_strategy='ES', 
-                                    random_seed=random_seed)
-    results = experiment.full_experiment(train_dataset=train_dataset,
-                                     val_dataset=val_dataset, 
-                                     test_dataset=test_dataset,
-                                     batch_size=batch_size, verbose=True)
-    
-    string_values = {key: str(value) for key, value in results.items()}
-    results_list.append(string_values)
+        # # For OE
+        experiments.run_architecture_experiments(architectures=architectures,
+                                                train_dataset=train_dataset, 
+                                                val_dataset=val_dataset,
+                                                test_dataset=test_dataset, 
+                                                batch_size=batch_size,
+                                                random_seed=random_seed,
+                                                train_strategy='OE',
+                                                verbose=True,
+                                                export_path=f'Experiment Results/Symmetrical MLP/Seeds_Batches/OE_Initial27_{random_seed}-{batch_size}')
 
 
-EXPORT_NAME = 'Classic_27' 
-results_df = pd.DataFrame(results_list)
-results_df.to_csv(f'./OE-Tests/First_Experiments/{EXPORT_NAME}ES.csv', index=False)
+# # Asymmetrical
+# architectures = experiments.generate_architectures(n_hidden_layers,
+#                                                     n_neurons_x_layer,
+#                                                     learning_rate, 
+#                                                     input_size, num_classes,
+#                                                     symmetric=False)
+# # For OE
+# experiments.run_architecture_experiments(architectures=architectures,
+#                                          train_dataset=train_dataset, 
+#                                          val_dataset=val_dataset,
+#                                          test_dataset=test_dataset, 
+#                                          batch_size=batch_size,
+#                                          random_seed=random_seed,
+#                                          train_strategy='OE',
+#                                          export_path=f'Experiment Results/Asymmetrical MLP/OE_Initial{len(architectures)}')
+
+# For ES
+# experiments.run_architecture_experiments(architectures=architectures,
+#                                          train_dataset=train_dataset, 
+#                                          val_dataset=val_dataset,
+#                                          test_dataset=test_dataset, 
+#                                          batch_size=batch_size,
+#                                          random_seed=random_seed,
+#                                          train_strategy='ES',
+#                                          export_path='Experiment Results/Symmetrical MLP/ES_Initial27.csv')
+
+
+
+
+os.system("shutdown /s /t 60")  # Shutdown in 60 seconds
