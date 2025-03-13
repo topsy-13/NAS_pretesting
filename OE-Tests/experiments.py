@@ -304,7 +304,7 @@ class Experiment:
 
     def generate_learning_curve(self, train_dataset, val_dataset, batch_size=32, metric='loss', verbose=False):
         """
-        Generate a learning curve using train and validation datasets. Requires the model being already built
+        Generate a learning curve using train and validation datasets.
         """
 
         # Get the full size of the training dataset
@@ -333,8 +333,9 @@ class Experiment:
             
             # Create train loader from subset
             train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-            set_seed(self.random_seed)
+            
             # Train and evaluate model
+            self.build_mlp()
             results = self.train_and_evaluate(train_loader=train_loader, val_loader=val_loader)
 
             # Store results
