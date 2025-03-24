@@ -77,36 +77,39 @@ class MLP(nn.Module):
         return epoch_loss, epoch_acc
 
 
-    def oe_train(self, train_loader):
+    def oe_train(self, train_loader, num_epochs=1):
         self.train()
-        total = 0
-        correct = 0
-        running_loss = 0.0
-        for images, labels in train_loader:
-            images, labels = images.to(self.device), labels.to(self.device)
-
-            # Flatten images from (batch, 3, 32, 32) to (batch, 3072)
-            images = images.view(images.size(0), -1)
-
-            self.optimizer.zero_grad()
-            outputs = self(images)
-            loss = self.criterion(outputs, labels)
-            loss.backward()
-            self.optimizer.step()
-
-            # Metrics
-            # Accumulate loss (convert from mean loss to total loss)
-            running_loss += loss.item() * images.size(0)
-            # Compute accuracy without tracking gradients
-            with torch.no_grad():
-                _, predicted = torch.max(outputs, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-
-         # Compute final loss and accuracy
-        train_loss = running_loss / total
-        train_acc = correct / total
         
+        for epoch in range(num_epochs):
+            total = 0
+            correct = 0
+            running_loss = 0.0
+            
+            for images, labels in train_loader:
+                images, labels = images.to(self.device), labels.to(self.device)
+
+                # Flatten images from (batch, 3, 32, 32) to (batch, 3072)
+                images = images.view(images.size(0), -1)
+
+                self.optimizer.zero_grad()
+                outputs = self(images)
+                loss = self.criterion(outputs, labels)
+                loss.backward()
+                self.optimizer.step()
+
+                # Metrics
+                # Accumulate loss (convert from mean loss to total loss)
+                running_loss += loss.item() * images.size(0)
+                # Compute accuracy without tracking gradients
+                with torch.no_grad():
+                    _, predicted = torch.max(outputs, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+
+            # Compute final loss and accuracy for the epoch
+            train_loss = running_loss / total
+            train_acc = correct / total
+            
         return train_loss, train_acc
 
     
@@ -229,7 +232,7 @@ class Experiment:
         return
     
 
-    def train_and_evaluate(self, train_loader, val_loader, test_loader=None):
+    def train_and_evaluate(self, train_loader, val_loader, test_loader=None, num_epochs=1):
         
         # Initialize neuron data
         results = {
@@ -250,7 +253,7 @@ class Experiment:
         if self.strategy == 'OE':
             # Start timing
             start_time = time.time()
-            train_loss, train_acc = self.model.oe_train(train_loader)
+            train_loss, train_acc = self.model.oe_train(train_loader, num_epochs=num_epochs)
 
             val_loss, val_acc = self.model.evaluate(val_loader)
             epoch_time_diff = time.time() - start_time # * After validation because training for ES it considers validation time as well.
@@ -282,63 +285,6 @@ class Experiment:
         return results
 
 
-    # def generate_learning_curve(self, train_dataset, val_dataset, batch_size=32, metric='loss', verbose=False):
-    #     """
-    #     Generate a learning curve based on the dataset size using train and validation datasets.
-    #     """
-
-    #     # Get the full size of the training dataset
-    #     full_train_size = len(train_dataset)
-        
-    #     # Create test loader (consistent for all evaluations)
-    #     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-        
-    #     DATASET_SIZES = 20
-    #     training_sizes = np.logspace(1, np.log10(full_train_size), DATASET_SIZES, dtype=int)
-
-    #     # Lists to store results
-    #     train_accuracies = []
-    #     val_accuracies = []
-    #     train_losses = []
-    #     val_losses = []
-        
-    #     # For each training size
-    #     for train_size in training_sizes:
-    #         if verbose:
-    #             print(f"\nTraining with {train_size} samples...")
-            
-    #         # Get random subset of the training data
-    #         indices = torch.randperm(full_train_size)[:train_size]
-    #         train_subset = Subset(train_dataset, indices)
-            
-    #         # Create train loader from subset
-    #         train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-            
-    #         # Train and evaluate model
-    #         self.build_MLP()
-    #         results = self.train_and_evaluate(train_loader=train_loader, val_loader=val_loader)
-
-    #         # Store results
-    #         train_accuracies.append(results['train_accuracy'])
-    #         train_losses.append(results['train_loss'])
-    #         val_accuracies.append(results['val_accuracy'])
-    #         val_losses.append(results['val_loss'])
-            
-    #     # lc_dict = {
-    #     #     'Dataset Size': training_sizes,
-    #     #     'Train Accuracy': train_accuracies,
-    #     #     'Train Losses': train_losses,
-    #     #     'Val Accuracy': val_accuracies,
-    #     #     'Val Losses': val_losses,
-    #     # }
-        
-    #     if metric == 'loss':
-    #         return train_losses, val_losses
-    #     elif metric == 'acc':
-    #         return train_accuracies, val_accuracies
-    #     else:
-    #         raise ValueError(f"Invalid metric'{metric}'. Valid options are: ['loss', 'acc'].")
-
     def generate_learning_curve(self, train_dataset, val_dataset, 
                                 batch_size, verbose=False, epochs=30):
         
@@ -367,7 +313,6 @@ class Experiment:
                 val_accuracies.append(results['val_accuracy'])
                 val_losses.append(results['val_loss'])
 
-            n_epochs = epochs
         else:
             # Train and evaluate model for ES
             results = self.train_and_evaluate(train_loader=train_loader,
@@ -376,12 +321,11 @@ class Experiment:
             train_losses = results['train_loss']
             val_accuracies = results['val_acc']
             val_losses = results['val_loss']
-            n_epochs = results['epoch']
 
         return train_accuracies, train_losses, val_accuracies, val_losses
 
 
-    def full_experiment(self, train_dataset, val_dataset, test_dataset, batch_size, verbose=False):
+    def full_experiment(self, train_dataset, val_dataset, test_dataset, batch_size, verbose=False, generate_learning_curve=True, num_epochs=1):
         self.batch_size = batch_size
 
         set_seed(self.random_seed)
@@ -392,29 +336,27 @@ class Experiment:
         
         # Build, train, validate and test the model
         self.build_MLP()
-        if self.strategy == 'OE':
-            results = self.train_and_evaluate(train_loader=train_loader,
-                                            val_loader=val_loader, 
-                                            test_loader=test_loader)
-            
+        results = self.train_and_evaluate(train_loader=train_loader,
+                                        val_loader=val_loader, 
+                                        test_loader=test_loader,
+                                        num_epochs=num_epochs)
+        
+        # Add learning curve for OE strategy only if requested
+        if self.strategy == 'OE' and generate_learning_curve:
             # Get the learning curve of the model, it gets redone inside the function
             train_accuracies, train_losses, val_accuracies, val_losses = self.generate_learning_curve(train_dataset=train_dataset, 
-                                        val_dataset=val_dataset, 
-                                        batch_size=batch_size, verbose=verbose)
+                                    val_dataset=val_dataset, 
+                                    batch_size=batch_size, verbose=verbose)
             # return everything as a dict
             results['LC_Train_Loss'] = train_losses
             results['LC_Val_Loss'] = val_losses
             results['LC_Train_Acc'] = train_accuracies
             results['LC_Val_Acc'] = val_accuracies
-        else: 
-            results = self.train_and_evaluate(train_loader=train_loader,
-                                            val_loader=val_loader, 
-                                            test_loader=test_loader)
             
         results['Strategy'] = self.strategy
         results['Seed'] = self.random_seed
         results['Batch Size'] = self.batch_size
-
+        
         return results
 
 
@@ -462,7 +404,7 @@ def generate_architectures(n_hidden_layers, n_neurons_x_layer, learning_rate, in
 
 def run_architecture_experiments(architectures, train_dataset, val_dataset, test_dataset, batch_size, random_seed,
                                 export_path, 
-                                train_strategy, verbose=False):
+                                train_strategy, verbose=False, generate_lc=True, epochs=1):
 
     results_list = []
     
@@ -474,7 +416,9 @@ def run_architecture_experiments(architectures, train_dataset, val_dataset, test
             val_dataset=val_dataset,
             test_dataset=test_dataset,
             batch_size=batch_size, 
-            verbose=verbose
+            verbose=verbose,
+            generate_learning_curve=generate_lc,
+            num_epochs=epochs
         )
         
         string_values = {key: str(value) for key, value in results.items()}

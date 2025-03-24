@@ -25,7 +25,7 @@ n_neurons_x_layer = [50, 200, 1000]
 learning_rate = [10**-3, 10**-4, 10**-5]
 # Set other HP
 seeds = [13, 42, 1337, 2024, 777]
-batch_sizes = [128, 256, 512]
+batch_sizes = [128, 256, 512, 1024]
 
 pairing_number = 1 
 total_combinations = len(seeds) * len(batch_sizes)
@@ -36,21 +36,28 @@ architectures = experiments.generate_architectures(n_hidden_layers,
                                                     learning_rate, 
                                                     input_size, num_classes,
                                                     symmetric=True) # For symmetric MLP
-for random_seed in seeds:
-    for batch_size in batch_sizes:
-        print(f'Testing seed-batch pairing number: {pairing_number}/{total_combinations}')
 
-        # # For OE
-        experiments.run_architecture_experiments(architectures=architectures,
-                                                train_dataset=train_dataset, 
-                                                val_dataset=val_dataset,
-                                                test_dataset=test_dataset, 
-                                                batch_size=batch_size,
-                                                random_seed=random_seed,
-                                                train_strategy='OE',
-                                                verbose=True,
-                                                export_path=f'Experiment Results/Symmetrical MLP/Seeds_Batches/OE_Initial27_{random_seed}-{batch_size}')
+epochs_to_test = [1, 6, 7, 8, 9, 10, 11, 12, 13]
+for epoch in epochs_to_test:
+    print('Epoch being tested:', {epoch})
+    for random_seed in seeds:
+        for batch_size in batch_sizes:
+            print(f'Testing seed-batch pairing number: {pairing_number}/{total_combinations}')
 
+            # # For OE
+            experiments.run_architecture_experiments(architectures=architectures,
+                                                    train_dataset=train_dataset, 
+                                                    val_dataset=val_dataset,
+                                                    test_dataset=test_dataset, 
+                                                    batch_size=batch_size,
+                                                    random_seed=random_seed,
+                                                    train_strategy='OE',
+                                                    verbose=True,
+                                                    generate_lc=False,
+                                                    epochs=epoch,
+                                                    export_path=f'Experiment Results/Symmetrical MLP/Seeds_Batches/{epoch}E_Initial27_{random_seed}-{batch_size}')
+            print('Data exported at Experiment Results/Symmetrical MLP/Seeds_Batches/5E_Initial27_{random_seed}-{batch_size}')
+            pairing_number += 1
 
 # # Asymmetrical
 # architectures = experiments.generate_architectures(n_hidden_layers,
@@ -77,8 +84,6 @@ for random_seed in seeds:
 #                                          random_seed=random_seed,
 #                                          train_strategy='ES',
 #                                          export_path='Experiment Results/Symmetrical MLP/ES_Initial27.csv')
-
-
 
 
 os.system("shutdown /s /t 60")  # Shutdown in 60 seconds
