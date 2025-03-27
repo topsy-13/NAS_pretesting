@@ -160,8 +160,8 @@ class SearchSpace():
 
     def train_model(self, model, 
                     train_loader, val_loader, # because batch_size
-                    num_epochs=1):
-        train_loss, train_acc = model.oe_train(train_loader, num_epochs=num_epochs)
+                    epochs=1):
+        train_loss, train_acc = model.oe_train(train_loader, num_epochs=epochs)
 
         return train_loss, train_acc    
 
