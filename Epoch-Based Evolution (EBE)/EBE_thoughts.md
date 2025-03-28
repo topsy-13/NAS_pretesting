@@ -35,3 +35,6 @@ I want to create a way for models to get trained fast and detect fast which one 
 ![image.png](attachment:image.png)
 
 **Hyperparameter Adjustments:** If reducing batch size, consider adjusting the learning rate accordingly (e.g., increase learning rate slightly when batch size decreases).
+
+**Incorporating Model Complexity in Selection**
+Instead of only ranking by raw performance, you could penalize architectures with excessive parameters (to favor efficiency).
