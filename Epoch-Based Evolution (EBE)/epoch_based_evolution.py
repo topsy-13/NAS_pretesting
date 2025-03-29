@@ -292,7 +292,19 @@ class Generation():
         self.generation = {new_idx: val for new_idx, (_, val) in enumerate(self.generation.items())}
         self.n_individuals = len(self.generation)  # Update the count
 
+    def drop_all_except_best(self):
+        # Sort individuals by validation loss in ascending order (lower loss is better)
+        sorted_generation = sorted(self.generation.items(), key=lambda x: x[1]["val_loss"])
 
+        # Keep only the best individual
+        best_individual = sorted_generation[0][0]
+        self.generation = {0: self.generation[best_individual]}
+        self.n_individuals = 1
+
+    def train_best_individual(self, train_loader, num_epochs=1):
+        best_model = self.generation[0]["model"]
+        best_model.oe_train(train_loader, num_epochs=num_epochs)
+        return
 
 # region Functions
 def run_generation(generation, train_loader, val_loader, num_epochs=1,
