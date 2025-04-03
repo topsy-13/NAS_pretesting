@@ -5,6 +5,8 @@ import torch.optim as optim
 import random
 import numpy as np
 
+import load_data
+
 def set_seed(seed=13):
     random.seed(seed)  # Python's built-in random module
     np.random.seed(seed)  # NumPy
@@ -21,11 +23,11 @@ class DynamicNN(nn.Module):
     def __init__(self, input_size, output_size, 
                  hidden_layers, 
                  activation_fn, dropout_rate,
-                 lr, optimizer_type,
-                 batch_size, random_seed # should I pass it?
+                 lr, optimizer_type, 
+                 random_seed # should I pass it?
                  ):
         super(DynamicNN, self).__init__()
-        
+        set_seed(seed=random_seed)
         layers = []
         prev_size = input_size
 
@@ -216,23 +218,19 @@ class SearchSpace():
         dropout_rate = architecture["dropout_rate"]
         optimizer_type = architecture["optimizer_type"]
         learning_rate = architecture["learning_rate"]
-        batch_size = architecture["batch_size"]  
+        self.batch_size = architecture["batch_size"]  # extract the batch size for dataloader
         random_seed = architecture["random_seed"]
 
         # Create model
         model = DynamicNN(self.input_size, self.output_size, 
                           hidden_layers, activation_fn, 
                           dropout_rate, learning_rate, optimizer_type, 
-                          batch_size, random_seed).to(self.device)
+                          self.batch_size, random_seed).to(self.device)
 
         return model
+    
 
-    # def train_model(self, model, 
-    #                 train_loader, val_loader, # because batch_size
-    #                 epochs=1):
-    #     train_loss, train_acc = model.oe_train(train_loader, num_epochs=epochs)
-
-    #     return train_loss, train_acc    
+    
 
 # region Generations
 class Generation():
@@ -249,21 +247,31 @@ class Generation():
             generation[i] = {
                 "model": model,
                 "architecture": architecture,
+                "batch_size": architecture['batch_size']
             }
         return generation
     
-    def train_generation(self, train_loader, num_epochs=1):
+    def train_generation(self, X_train, y_train, num_epochs=1):
         for i in range(self.n_individuals):
             model = self.generation[i]["model"]
+            batch_size = self.generation[i]["batch_size"]
+            # Create a DataLoader with the architecture-specific batch size
+            train_loader = create_dataloaders(X=X_train, y=y_train, batch_size=batch_size)
+
             train_loss, train_acc = model.oe_train(train_loader, num_epochs=num_epochs)
             self.generation[i]["train_loss"] = train_loss
             self.generation[i]["train_acc"] = train_acc
         return
     
 
-    def validate_generation(self, val_loader):
+    def validate_generation(self, X_val, y_val):
         for i in range(self.n_individuals):
             model = self.generation[i]["model"]
+            batch_size = self.generation[i]["batch_size"]
+            
+            # Create a DataLoader with the architecture-specific batch size
+            val_loader = create_dataloaders(X=X_val, y=y_val, batch_size=batch_size)
+            
             val_loss, val_acc = model.evaluate(val_loader)
             self.generation[i]["val_loss"] = val_loss
             self.generation[i]["val_acc"] = val_acc
@@ -307,7 +315,20 @@ class Generation():
         return
 
 # region Functions
-def run_generation(generation, train_loader, val_loader, num_epochs=1,
+
+def create_dataloaders(X, y, 
+                       batch_size, return_as='loaders'):
+
+    # Create DataLoaders
+    dataset, dataloader = load_data.create_dataset_and_loader(X, y,
+    batch_size=batch_size)
+    if return_as == 'loaders':
+        return dataloader
+    else: 
+        return dataset
+
+def run_generation(generation, train_loader, val_loader,
+                   num_epochs=1,
                    percentile_drop=15):
     
     # Generation is trained, and dropped
@@ -317,4 +338,5 @@ def run_generation(generation, train_loader, val_loader, num_epochs=1,
     generation.drop_worst_individuals()
 
     return generation
+
 #endregion
