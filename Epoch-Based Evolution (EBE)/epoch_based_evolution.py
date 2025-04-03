@@ -6,6 +6,8 @@ import random
 import numpy as np
 
 import load_data
+import gc
+
 
 def set_seed(seed=13):
     random.seed(seed)  # Python's built-in random module
@@ -24,10 +26,12 @@ class DynamicNN(nn.Module):
                  hidden_layers, 
                  activation_fn, dropout_rate,
                  lr, optimizer_type, 
-                 random_seed # should I pass it?
+                 device=None 
                  ):
         super(DynamicNN, self).__init__()
-        set_seed(seed=random_seed)
+
+        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         layers = []
         prev_size = input_size
 
@@ -45,10 +49,6 @@ class DynamicNN(nn.Module):
         self.network = nn.Sequential(*layers)
         self.optimizer = optimizer_type(self.parameters(), lr=lr)
         self.criterion = nn.CrossEntropyLoss()
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        return
-    
 
     def forward(self, x):
         return self.network(x)
@@ -118,49 +118,7 @@ class DynamicNN(nn.Module):
             return val_loss, val_accuracy
 
 
-class FlexibleDynamicNN(DynamicNN):
-    def __init__(self, input_size, output_size, 
-                 hidden_layers, 
-                 activation_fns, dropout_rates,
-                 lr, optimizer_type, 
-                 batch_size, random_seed=None):
-        # Call the parent constructor with default values
-        super(FlexibleDynamicNN, self).__init__(input_size, output_size, 
-                                                hidden_layers, 
-                                                activation_fn=activation_fns[0], 
-                                                dropout_rate=dropout_rates[0], 
-                                                lr=lr, 
-                                                optimizer_type=optimizer_type, 
-                                                batch_size=batch_size, 
-                                                random_seed=random_seed)
-        
-        layers = []
-        prev_size = input_size
-
-        # Create hidden layers dynamically with varying activation functions and dropout rates
-        for i, size in enumerate(hidden_layers):
-            layers.append(nn.Linear(prev_size, size))
-            
-            # Use the activation function from the list
-            if i < len(activation_fns):
-                layers.append(activation_fns[i]())
-            else:
-                raise ValueError("Not enough activation functions provided for the hidden layers.")
-            
-            # Use the dropout rate from the list
-            if i < len(dropout_rates) and dropout_rates[i] > 0:
-                layers.append(nn.Dropout(dropout_rates[i]))
-                
-            prev_size = size
-        
-        # Output layer
-        layers.append(nn.Linear(prev_size, output_size))
-
-        self.network = nn.Sequential(*layers)
-        self.optimizer = optimizer_type(self.parameters(), lr=lr)
-        self.criterion = nn.CrossEntropyLoss()
-
-
+# region Search Space
 class SearchSpace():
     def __init__(self, input_size, output_size, 
                  min_layers=2, max_layers=7, 
@@ -169,7 +127,7 @@ class SearchSpace():
                  dropout_rates=[0, 0.1, 0.2, 0.5],
                  min_learning_rate=0.001, max_learning_rate=0.01,
                  random_seeds=[13, 42, 1337, 2024, 777],
-                 min_batch_size=128, max_batch_size=1024):
+                 min_batch_size=32, max_batch_size=1024):
         
         self.input_size = input_size
         self.output_size = output_size
@@ -221,6 +179,8 @@ class SearchSpace():
         self.batch_size = architecture["batch_size"]  # extract the batch size for dataloader
         random_seed = architecture["random_seed"]
 
+        # Set the seed before creating the model
+        set_seed(seed=random_seed)
         # Create model
         model = DynamicNN(self.input_size, self.output_size, 
                           hidden_layers, activation_fn, 
@@ -229,8 +189,7 @@ class SearchSpace():
 
         return model
     
-
-    
+# endregion
 
 # region Generations
 class Generation():
@@ -261,7 +220,6 @@ class Generation():
             train_loss, train_acc = model.oe_train(train_loader, num_epochs=num_epochs)
             self.generation[i]["train_loss"] = train_loss
             self.generation[i]["train_acc"] = train_acc
-        return
     
 
     def validate_generation(self, X_val, y_val):
@@ -275,7 +233,6 @@ class Generation():
             val_loss, val_acc = model.evaluate(val_loader)
             self.generation[i]["val_loss"] = val_loss
             self.generation[i]["val_acc"] = val_acc
-        return
 
 
     def get_worst_individuals(self, 
@@ -289,9 +246,18 @@ class Generation():
         # Extract the keys of the worst individuals
         self.worst_individuals = [key for key, _ in sorted_generation[:n_worst_individuals]]
 
-        return
+        
 
     def drop_worst_individuals(self):
+        # Clean up GPU memory before removing references
+        for idx in self.worst_individuals:
+            if hasattr(self.generation[idx]["model"], "cpu"):
+                self.generation[idx]["model"] = self.generation[idx]["model"].cpu()
+            # Force garbage collection for the model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
         # Remove worst individuals
         for idx in self.worst_individuals:
             del self.generation[idx]
@@ -303,16 +269,28 @@ class Generation():
     def drop_all_except_best(self):
         # Sort individuals by validation loss in ascending order (lower loss is better)
         sorted_generation = sorted(self.generation.items(), key=lambda x: x[1]["val_loss"])
-
+        
         # Keep only the best individual
         best_individual = sorted_generation[0][0]
-        self.generation = {0: self.generation[best_individual]}
+        best_model_data = self.generation[best_individual]
+        
+        # Clean up GPU memory for models that will be discarded
+        for idx, data in self.generation.items():
+            if idx != best_individual:
+                if hasattr(data["model"], "cpu"):
+                    data["model"] = data["model"].cpu()
+        
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            
+        self.generation = {0: best_model_data}
         self.n_individuals = 1
 
     def train_best_individual(self, train_loader, num_epochs=1):
         best_model = self.generation[0]["model"]
         best_model.oe_train(train_loader, num_epochs=num_epochs)
-        return
+        
 
 # region Functions
 
@@ -327,13 +305,14 @@ def create_dataloaders(X, y,
     else: 
         return dataset
 
-def run_generation(generation, train_loader, val_loader,
+def run_generation(generation, 
+                   X_train, y_train, X_val, y_val,
                    num_epochs=1,
                    percentile_drop=15):
     
     # Generation is trained, and dropped
-    generation.train_generation(train_loader, num_epochs=num_epochs)
-    generation.validate_generation(val_loader)
+    generation.train_generation(X_train, y_train, num_epochs=num_epochs)
+    generation.validate_generation(X_val, y_val)
     generation.get_worst_individuals(percentile_drop)
     generation.drop_worst_individuals()
 
