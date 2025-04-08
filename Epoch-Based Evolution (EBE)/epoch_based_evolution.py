@@ -8,6 +8,8 @@ import numpy as np
 import load_data
 import gc
 
+import pandas as pd
+import copy
 
 def set_seed(seed=13):
     random.seed(seed)  # Python's built-in random module
@@ -31,7 +33,6 @@ class DynamicNN(nn.Module):
         super(DynamicNN, self).__init__()
 
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         layers = []
         prev_size = input_size
 
@@ -89,6 +90,68 @@ class DynamicNN(nn.Module):
             
         return train_loss, train_acc
     
+    def es_train(self, train_loader, val_loader, es_patience=50, max_epochs=300, verbose=False):
+        best_val_acc = -float('inf')
+        epochs_without_improvement = 0
+        best_model_state = None
+
+        best_train_loss = None
+        best_train_acc = None
+        best_val_loss = None
+
+        for epoch in range(1, max_epochs + 1):
+            train_loss, train_acc = self.oe_train(train_loader)
+
+            self.eval()
+            running_loss_val = 0.0
+            total_val = 0
+            correct_val = 0
+
+            with torch.no_grad():
+                for features, labels in val_loader:
+                    features, labels = features.to(self.device), labels.to(self.device)
+
+                    if features.dim() > 2:
+                        features = features.view(features.size(0), -1)
+
+                    outputs = self(features)
+                    loss = self.criterion(outputs, labels)
+
+                    running_loss_val += loss.item() * features.size(0)
+                    _, predicted = torch.max(outputs, 1)
+                    total_val += labels.size(0)
+                    correct_val += (predicted == labels).sum().item()
+
+            val_loss = running_loss_val / total_val
+            val_acc = correct_val / total_val
+
+            self.train()
+
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                best_val_loss = val_loss
+                best_train_loss = train_loss
+                best_train_acc = train_acc
+                best_model_state = copy.deepcopy(self.state_dict())
+                epochs_without_improvement = 0
+                print('New best acc found:', best_val_acc)
+            else:
+                epochs_without_improvement += 1
+
+            if verbose:
+                print(f"Epoch {epoch}: Train Loss={train_loss:.4f}, Train Acc={train_acc:.4f}, "
+                    f"Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
+
+            if epochs_without_improvement >= es_patience:
+                if verbose:
+                    print(f"Early stopping triggered after {epoch} epochs.")
+                break
+
+        if best_model_state is not None:
+            self.load_state_dict(best_model_state)
+
+        return best_train_loss, best_train_acc, best_val_loss, best_val_acc
+
     def evaluate(self, val_loader):
             self.eval()
             
@@ -180,12 +243,12 @@ class SearchSpace():
         random_seed = architecture["random_seed"]
 
         # Set the seed before creating the model
-        set_seed(seed=random_seed)
+        # set_seed(seed=random_seed)
         # Create model
         model = DynamicNN(self.input_size, self.output_size, 
                           hidden_layers, activation_fn, 
-                          dropout_rate, learning_rate, optimizer_type, 
-                          self.batch_size, random_seed).to(self.device)
+                          dropout_rate, learning_rate, optimizer_type
+                          ).to(self.device)
 
         return model
     
@@ -287,10 +350,40 @@ class Generation():
         self.generation = {0: best_model_data}
         self.n_individuals = 1
 
-    def train_best_individual(self, train_loader, num_epochs=1):
+    def train_best_individual(self, X_train, y_train, num_epochs=1):
         best_model = self.generation[0]["model"]
+        batch_size = self.generation[0]["batch_size"]
+        # Create a DataLoader with the architecture-specific batch size
+        train_loader = create_dataloaders(X=X_train, y=y_train, batch_size=batch_size)
         best_model.oe_train(train_loader, num_epochs=num_epochs)
-        
+    
+    def return_df(self):
+        # As a dataframe
+        architectures = []
+        train_losses = []
+        train_accs = []
+        val_losses = []
+        val_accs = []
+        batch_sizes = []
+        for i in range(self.n_individuals):
+            architectures.append(self.generation[i]["architecture"])
+            train_losses.append(self.generation[i]["train_loss"])
+            train_accs.append(self.generation[i]["train_acc"])
+            val_losses.append(self.generation[i]["val_loss"])
+            val_accs.append(self.generation[i]["val_acc"])
+            batch_sizes.append(self.generation[i]["batch_size"])        
+
+        # Create a DataFrame with the architectures and their corresponding metrics
+        architectures_df = pd.DataFrame(architectures)
+        architectures_df['train_loss'] = train_losses
+        architectures_df['train_acc'] = train_accs
+        architectures_df['val_loss'] = val_losses
+        architectures_df['val_acc'] = val_accs
+        architectures_df['batch_size'] = batch_sizes
+
+        df = pd.DataFrame(architectures_df)
+        return df
+
 
 # region Functions
 
