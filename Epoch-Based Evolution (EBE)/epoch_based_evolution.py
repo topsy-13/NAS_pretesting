@@ -189,7 +189,7 @@ class SearchSpace():
                  activation_fns=[nn.ReLU, nn.LeakyReLU, nn.Sigmoid],
                  dropout_rates=[0, 0.1, 0.2, 0.5],
                  min_learning_rate=0.001, max_learning_rate=0.01,
-                 random_seeds=[13, 42, 1337, 2024, 777],
+                #  random_seeds=[13, 42, 1337, 2024, 777],
                  min_batch_size=32, max_batch_size=1024):
         
         self.input_size = input_size
@@ -203,7 +203,7 @@ class SearchSpace():
         self.dropout_rates = dropout_rates
         self.optimizers = [optim.Adam, optim.SGD]
 
-        self.random_seeds = random_seeds
+        # self.random_seeds = random_seeds
         # Build batch sizes considering powers of 2
         power = 1
         self.batch_sizes = []
@@ -220,7 +220,7 @@ class SearchSpace():
         dropout_rate = random.choice(self.dropout_rates)
         optimizer_type = random.choice(self.optimizers)
         learning_rate = random.uniform(self.learning_rates[0], self.learning_rates[1])
-        batch_size = random.choice(self.batch_sizes) # for later
+        batch_size = random.choice(self.batch_sizes) 
         random_seed = random.choice(self.random_seeds)
 
         return {

@@ -1,0 +1,6 @@
+Dataset 40996 completed in 1503.54 seconds
+Dataset 1590 completed in 1030.16 seconds
+Dataset 4532 completed in 2126.89 seconds
+Dataset 41143 completed in 110.24 seconds
+Dataset 54 completed in 65.80 seconds
+Dataset 41166 completed in 1294.65 seconds

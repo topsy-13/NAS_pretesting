@@ -38,3 +38,17 @@ I want to create a way for models to get trained fast and detect fast which one 
 
 **Incorporating Model Complexity in Selection**
 Instead of only ranking by raw performance, you could penalize architectures with excessive parameters (to favor efficiency).
+
+
+# Now, how to create the testing for the identified architectures? 
+## Extract the best models
+Done
+## Create the model based on those parameters
+Pending
+## Train the model by ES
+Pending
+## Store their results
+Pending
+
+# Analyze the difference bw those ones and a random search. 
+Hella Pending

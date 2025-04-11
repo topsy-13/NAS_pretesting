@@ -1,6 +1,4 @@
 import openml
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
 import numpy as np
 import pandas as pd
 
@@ -9,42 +7,73 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder, OneHotEncoder
+from sklearn.model_selection import train_test_split
 
 # region Loading data
-def load_openml_dataset(dataset_id=334, scaling=True, random_seed=None, return_as='tensor'):
-    # Get from OpenML
+def load_openml_dataset(dataset_id=334):
+    """Loads dataset from OpenML and returns it as a Pandas DataFrame."""
     dataset = openml.datasets.get_dataset(dataset_id)
-    # Make it a df
     X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute)
-    
-    # Convert to numpy array
-    X = X.values
-    
-    # Ensure y is in a compatible format
+    return X, y
+
+def preprocess_features(X, categorical_strategy='onehot'):
+    """Encodes categorical features if present."""
+    # Identify categorical columns
+    categorical_columns = X.select_dtypes(include=['object', 'category']).columns.tolist()
+
+    if categorical_columns:
+        print(f"Categorical features detected: {categorical_columns}")
+        
+        if categorical_strategy == 'onehot':
+            X = pd.get_dummies(X, columns=categorical_columns)  # One-hot encoding
+        elif categorical_strategy == 'label':
+            for col in categorical_columns:
+                X[col] = LabelEncoder().fit_transform(X[col].astype(str))  # Label encoding
+        else:
+            raise ValueError("categorical_strategy must be 'onehot' or 'label'.")
+
+    return X.values  # Convert DataFrame to NumPy array
+
+def preprocess_target(y, encode_labels=True):
+    """Encodes target labels if they are categorical."""
     if isinstance(y, pd.Series):
-        y = y.astype(str).values  # Convert categorical to string and then to numpy array
+        y = y.astype(str).values  # Convert to string and then to NumPy array
     
-    # Apply LabelEncoder if y is not numeric
-    if not np.issubdtype(y.dtype, np.number):
+    if encode_labels and not np.issubdtype(y.dtype, np.number):
         print("Class column is not numeric. Applying LabelEncoder.")
         y = LabelEncoder().fit_transform(y)
     
-    # Split the data
+    return y
+
+def split_data(X, y, test_size=0.2, val_size=0.2, random_seed=None):
+    """Splits data into train, validation, and test sets."""
     X_train_val, X_test, y_train_val, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=random_seed
+        X, y, test_size=test_size, random_state=random_seed
     )
     
     X_train, X_val, y_train, y_val = train_test_split(
-        X_train_val, y_train_val, test_size=0.2, random_state=random_seed
+        X_train_val, y_train_val, test_size=val_size, random_state=random_seed
     )
+
+    return X_train, X_val, X_test, y_train, y_val, y_test
+
+def scale_features(X_train, X_val, X_test, scaler_type='standard'):
+    """Scales features using StandardScaler or MinMaxScaler."""
+    scalers = {
+        'standard': StandardScaler(),
+        'minmax': MinMaxScaler()
+    }
+    scaler = scalers.get(scaler_type, StandardScaler())  # Default: StandardScaler
+
+    X_train = scaler.fit_transform(X_train)
+    X_val = scaler.transform(X_val)
+    X_test = scaler.transform(X_test)
     
-    # Scale the data 
-    if scaling:
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_val = scaler.transform(X_val)
-        X_test = scaler.transform(X_test)
-    
+    return X_train, X_val, X_test
+
+def convert_to_tensor(X_train, X_val, X_test, y_train, y_val, y_test, return_as='tensor'):
+    """Converts data to PyTorch tensors if required."""
     if return_as == 'tensor':
         X_train = torch.tensor(X_train, dtype=torch.float32)
         X_val = torch.tensor(X_val, dtype=torch.float32)
@@ -52,11 +81,40 @@ def load_openml_dataset(dataset_id=334, scaling=True, random_seed=None, return_a
         y_train = torch.tensor(y_train, dtype=torch.long)
         y_val = torch.tensor(y_val, dtype=torch.long)
         y_test = torch.tensor(y_test, dtype=torch.long)
+    
+    return X_train, X_val, X_test, y_train, y_val, y_test
 
+def get_preprocessed_data(dataset_id=334, scaling=True, scaler_type='standard', 
+                          encode_labels=True, categorical_strategy='onehot',
+                          return_as='tensor', random_seed=None):
+    """Full pipeline to load, preprocess, and return dataset."""
+    
+    # Load data
+    X, y = load_openml_dataset(dataset_id)
 
-    print(f'Data loaded successfully! as {type(y_train)}')
+    # Convert categorical features to numeric
+    X = preprocess_features(X, categorical_strategy)
+
+    # Convert target variable if needed
+    y = preprocess_target(y, encode_labels)
+
+    # Split the dataset
+    X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y, random_seed=random_seed)
+
+    # Scale features if needed
+    if scaling:
+        X_train, X_val, X_test = scale_features(X_train, X_val, X_test, scaler_type=scaler_type)
+
+    # Convert to tensors if required
+    X_train, X_val, X_test, y_train, y_val, y_test = convert_to_tensor(
+        X_train, X_val, X_test, y_train, y_val, y_test, return_as
+    )
+
+    print(f'Data loaded successfully! Format: {return_as}')
     print(f'Training data shape: {X_train.shape}')
     return X_train, y_train, X_val, y_val, X_test, y_test
+
+
 # Use case:
 # X_train, y_train, X_val, y_val, X_test, y_test = load_openml_dataset(return_as='tensor')
 
@@ -93,6 +151,7 @@ def get_tensor_sizes(X_train, y_train):
     elif len(X_train.shape) == 1:
         input_size = 1
     else:
+        print('Images detected')
         # For multi-dimensional inputs like images
         input_size = X_train.shape[1] * X_train.shape[2] * X_train.shape[3]
 
@@ -107,22 +166,7 @@ def get_tensor_sizes(X_train, y_train):
 
     return input_size, output_size
 
-
 # endregion
-
-# Use case:
-# batch_size = 512
-# dataset_id=334
-
-# X_train, y_train, X_val, y_val, X_test, y_test = load_openml_dataset(return_as='tensor', dataset_id=dataset_id, scaling=True)
-
-# train_dataset, train_loader = create_dataset_and_loader(X_train, y_train,
-#                                                         batch_size=batch_size)
-# val_dataset, val_loader = create_dataset_and_loader(X_val, y_val, 
-#                                                     batch_size=batch_size)
-# test_dataset, test_loader = create_dataset_and_loader(X_test, y_test,
-#                                                       batch_size=batch_size)
-
 
 # region CIFAR-10
 import pickle
